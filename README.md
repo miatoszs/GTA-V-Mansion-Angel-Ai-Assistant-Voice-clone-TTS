@@ -266,9 +266,79 @@ python3 -m piper_train \
     --quality medium
 
 ```
- **Resume Training.**
+ **Run the  resume script.**
 ```bash
 chmod +x resume.sh
 ./resume.sh
 
 ```
+
+
+### **5. Auto-Export Script**
+
+Save this as `export_model.sh`. This script finds the latest checkpoint, converts it to an ONNX file, and automatically sets up the required JSON config file for you.
+change the export path
+`OUTPUT_DIR="/path/to/your/output"`
+and the  Name of your voice model
+`VOICE_NAME="my_custom_voice"`
+```bash
+#!/bin/bash
+
+# --- CONFIGURATION ---
+# The directory containing 'lightning_logs'
+LOGS_DIR="~/train-me/lightning_logs"
+# Where you want the final model saved
+OUTPUT_DIR="/path/to/your/output"
+# Name of your voice model
+VOICE_NAME="my_custom_voice"
+# Path to your config.json (usually in your main training folder)
+CONFIG_PATH="~/train-me/config.json"
+# ---------------------
+
+# 1. Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# 2. Find the latest version directory
+LATEST_VERSION_DIR=$(ls -d "$LOGS_DIR"/version_* 2>/dev/null | sort -V | tail -n 1)
+
+if [ -z "$LATEST_VERSION_DIR" ]; then
+    echo "❌ Error: No version directories found in $LOGS_DIR"
+    exit 1
+fi
+
+# 3. Find the latest checkpoint file
+LATEST_CKPT=$(ls "$LATEST_VERSION_DIR/checkpoints"/epoch=*-step=*.ckpt 2>/dev/null | grep -v "Zone.Identifier" | sort -V | tail -n 1)
+
+if [ -z "$LATEST_CKPT" ]; then
+    echo "❌ Error: No checkpoint files found."
+    exit 1
+fi
+
+echo "✅ Exporting checkpoint: $LATEST_CKPT"
+
+# 4. Export to ONNX
+python3 -m piper_train.export_onnx \
+    "$LATEST_CKPT" \
+    "$OUTPUT_DIR/$VOICE_NAME.onnx"
+
+# 5. Copy and rename the config file (Required for Piper to work)
+if [ -f "$CONFIG_PATH" ]; then
+    cp "$CONFIG_PATH" "$OUTPUT_DIR/$VOICE_NAME.onnx.json"
+    echo "✅ Config file copied to $OUTPUT_DIR/$VOICE_NAME.onnx.json"
+else
+    echo "⚠️ Warning: config.json not found at $CONFIG_PATH. You will need to copy it manually."
+fi
+
+echo "🎉 Export Complete! Model saved to $OUTPUT_DIR"
+
+```
+
+ **Run the script:**
+```bash
+chmod +x  export_model.sh
+./export_model.sh
+```
+
+
+
+
