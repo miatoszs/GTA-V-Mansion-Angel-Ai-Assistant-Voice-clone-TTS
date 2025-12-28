@@ -2,7 +2,7 @@ This is a complete, start-to-finish guide to cloning the "Angel" voice from GTA 
 
 ### **Prerequisites**
 
-You need a Linux environment (or WSL2 on Windows) with an NVIDIA GPU and `Docker` installed.
+You need  Ubuntu22.04  (or WSL2 on Windows) with an NVIDIA GPU and `Docker` installed.
 
 Install the required system tools first:
 
@@ -338,6 +338,7 @@ echo "🎉 Export Complete! Model saved to $OUTPUT_DIR"
 chmod +x  export_model.sh
 ./export_model.sh
 ```
+
 
 
 
