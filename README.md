@@ -278,21 +278,25 @@ chmod +x resume.sh
 
 Save this as `export_model.sh`. This script finds the latest checkpoint, converts it to an ONNX file, and automatically sets up the required JSON config file for you.
 change the export path
-`OUTPUT_DIR="/path/to/your/output"`
+`OUTPUT_DIR="$HOME/train-me/output"`
 and the  Name of your voice model
 `VOICE_NAME="my_custom_voice"`
 ```bash
 #!/bin/bash
 
 # --- CONFIGURATION ---
-# The directory containing 'lightning_logs'
-LOGS_DIR="~/train-me/lightning_logs"
-# Where you want the final model saved
-OUTPUT_DIR="/path/to/your/output"
+# We use $HOME instead of ~ to ensure it finds the path correctly
+LOGS_DIR="$HOME/train-me/lightning_logs"
+
+# Where you want the final model saved (Change this if needed)
+OUTPUT_DIR="$HOME/train-me/output"
+
 # Name of your voice model
 VOICE_NAME="my_custom_voice"
-# Path to your config.json (usually in your main training folder)
-CONFIG_PATH="~/train-me/config.json"
+
+# Path to your config.json (usually in your dataset root)
+# Update this path if your config.json is elsewhere!
+CONFIG_PATH="$HOME/train-me/config.json"
 # ---------------------
 
 # 1. Create output directory if it doesn't exist
@@ -303,6 +307,7 @@ LATEST_VERSION_DIR=$(ls -d "$LOGS_DIR"/version_* 2>/dev/null | sort -V | tail -n
 
 if [ -z "$LATEST_VERSION_DIR" ]; then
     echo "❌ Error: No version directories found in $LOGS_DIR"
+    echo "   (Make sure the path is correct and not using '~' inside quotes)"
     exit 1
 fi
 
@@ -310,7 +315,7 @@ fi
 LATEST_CKPT=$(ls "$LATEST_VERSION_DIR/checkpoints"/epoch=*-step=*.ckpt 2>/dev/null | grep -v "Zone.Identifier" | sort -V | tail -n 1)
 
 if [ -z "$LATEST_CKPT" ]; then
-    echo "❌ Error: No checkpoint files found."
+    echo "❌ Error: No checkpoint files found in $LATEST_VERSION_DIR/checkpoints"
     exit 1
 fi
 
@@ -321,12 +326,13 @@ python3 -m piper_train.export_onnx \
     "$LATEST_CKPT" \
     "$OUTPUT_DIR/$VOICE_NAME.onnx"
 
-# 5. Copy and rename the config file (Required for Piper to work)
+# 5. Copy and rename the config file
 if [ -f "$CONFIG_PATH" ]; then
     cp "$CONFIG_PATH" "$OUTPUT_DIR/$VOICE_NAME.onnx.json"
     echo "✅ Config file copied to $OUTPUT_DIR/$VOICE_NAME.onnx.json"
 else
-    echo "⚠️ Warning: config.json not found at $CONFIG_PATH. You will need to copy it manually."
+    echo "⚠️ Warning: config.json not found at $CONFIG_PATH."
+    echo "   Please manually copy your config.json to $OUTPUT_DIR/$VOICE_NAME.onnx.json"
 fi
 
 echo "🎉 Export Complete! Model saved to $OUTPUT_DIR"
@@ -338,6 +344,7 @@ echo "🎉 Export Complete! Model saved to $OUTPUT_DIR"
 chmod +x  export_model.sh
 ./export_model.sh
 ```
+
 
 
 
