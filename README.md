@@ -33,7 +33,7 @@ cd ~/angel_voice_project/raw
 Replace the URL below with the best "Angel Voice Lines" video you found (look for "no music" or "voice lines only").
 
 ```bash
-yt-dlp -x --audio-format wav --output "angel_source.wav" "https://www.youtube.com/watch?v=YOUR_VIDEO_ID_HERE"
+yt-dlp -x --audio-format wav --output "angel_source.wav" "https://www.youtube.com/watch?v=dCGTvZ9ob70"
 
 ```
 
@@ -263,5 +263,6 @@ cd TextyMcSpeechy
 # (Move files to Angel_dojo/training_folder/)
 ./download_defaults.sh
 ./run_training.sh Angel
+
 
 ```
