@@ -146,123 +146,129 @@ You now have a `wav` folder and a `metadata.csv` file. You are ready to train.
 
 ---
 
-### **Phase 4: Training with TextyMcSpeechy**
 
-We will use the Dockerized tool to train the model locally.
+### **Step 4: Install Piper for Training**
 
-**1. Clone the Training Tool**
-Go back to your home directory and get TextyMcSpeechy.
-
+1. Create training folders and clone Piper.
 ```bash
-cd ~
-git clone https://github.com/domesticatedviking/TextyMcSpeechy.git
-cd TextyMcSpeechy
+mkdir training
+cd training
+git clone https://github.com/rhasspy/piper.git
+python3 -m venv .venv
+source .venv/bin/activate
 
 ```
 
-**2. Start the Docker Container**
 
+2. **Crucial:** Install specific dependency versions to avoid errors.
 ```bash
-./run_container.sh
+python3 -m pip install pip==23.3.1
+pip install numpy==1.24.4
+pip install torchmetrics==0.11.4
 
 ```
 
-**3. Create the "Dojo" (Project Folder)**
 
+3. Build Piper requirements.
 ```bash
-./create_dojo.sh Angel
+cd piper/src/python
+python3 -m pip install --upgrade wheel setuptools
+pip3 install -e .
+./build_monotonic_align.sh
 
 ```
 
-**4. Move your data into the Dojo**
-Now we take the files from Phase 2 & 3 and put them where the trainer can see them.
 
-```bash
-# Copy wavs
-cp -r ~/angel_voice_project/raw/wav/* ./Angel_dojo/training_folder/wavs/
-
-# Copy metadata
-cp ~/angel_voice_project/raw/metadata.csv ./Angel_dojo/training_folder/
-
-```
-
-**5. Download a Base Voice (Fine-Tuning)**
-We don't train from scratch; we "fine-tune" an existing voice.
-
-```bash
-./download_defaults.sh
-
-```
-
-* **Prompt:** Select an English female voice (e.g., `en_US-amy-medium`).
 
 ---
 
-### **Phase 5: Running the Training**
+### **Step 4: Pre-process and Train**
 
-**1. Start the Training**
-
+1. **Pre-process the data** (Prepare it for the AI).
 ```bash
-./run_training.sh Angel
+python3 -m piper_train.preprocess \
+  --language en \
+  --input-dir ~/angel_voice_project/raw/ \
+  --output-dir ~/train-me \
+  --dataset-format ljspeech \
+  --single-speaker \
+  --sample-rate 22050
 
 ```
 
-**2. What to do now?**
 
-* **Wait:** A terminal dashboard will appear. Watch the "Loss" graph; it should go down.
-* **Listen:** Check the `Angel_dojo/training_folder/output/` folder periodically. The tool will generate test audio there.
-* **Stop:** When the voice sounds like Angel (usually 2–4 hours or ~3000 epochs), press `Ctrl+C`.
+2. **Download a base model** (Don't start from scratch).
+```bash
+wget https://huggingface.co/datasets/rhasspy/piper-checkpoints/resolve/main/en/en_US/amy/medium/epoch%3D6679-step%3D1554200.ckpt
+
+```
+
+
+3. **Start Training.**
+*Note: Update the paths to match where your data and the `.ckpt` file you just downloaded are located.*
+```bash
+python3 -m piper_train \
+    --dataset-dir ~/train-me \
+    --accelerator 'gpu' \
+    --gpus 1 \
+    --batch-size 32 \
+    --validation-split 0.0 \
+    --num-test-examples 0 \
+    --max_epochs 10000 \
+    --resume_from_checkpoint "/path/to/downloaded/checkpoint.ckpt" \
+    --checkpoint-epochs 1 \
+    --precision 16 \
+    --max-phoneme-ids 400 \
+    --quality medium
+
+```
+
+
+*Press `Ctrl+C` when you are satisfied with the training logic (or when loss is low).*
 
 ---
 
-### **Phase 6: Export & Install**
+4. **Resume Training.**
 
-After you stop the training (`Ctrl+C`), the tool automatically exports the finished model.
-
-**1. Locate the files**
+Create a file `resume.sh` in the `training/piper/src/python` folder
 
 ```bash
-ls -l Angel_dojo/tts_voices/
+#!/bin/bash
+
+# 1. Define the directory where checkpoints are located
+CKPT_DIR="~/"
+
+# 2. Find the file with the highest epoch/step (ignoring Zone.Identifier files)
+# We search specifically inside CKPT_DIR
+LATEST_CKPT=$(ls "$CKPT_DIR"/epoch=*-step=*.ckpt 2>/dev/null | grep -v "Zone.Identifier" | sort -V | tail -n 1)
+
+# 3. Check if we actually found a file
+if [ -z "$LATEST_CKPT" ]; then
+    echo "❌ Error: No checkpoint files found in $CKPT_DIR!"
+    exit 1
+fi
+
+echo "✅ Resuming from latest checkpoint: $LATEST_CKPT"
+
+# 4. Run the training command
+python3 -m piper_train \
+    --dataset-dir ~/train-me \
+    --accelerator 'gpu' \
+    --gpus 1 \
+    --batch-size 16 \
+    --validation-split 0.0 \
+    --num-test-examples 0 \
+    --max_epochs 10000 \
+    --resume_from_checkpoint "$LATEST_CKPT" \
+    --checkpoint-epochs 1 \
+    --precision 16 \
+    --max-phoneme-ids 400 \
+    --quality medium
 
 ```
-
-You will see `en_US-angel-medium.onnx` and `en_US-angel-medium.onnx.json`.
-
-**2. Copy to Home Assistant**
-(Assuming you have Samba set up, or use `scp`):
-
+ **Resume Training.**
 ```bash
-# Example scp command if you have SSH access to Home Assistant
-scp Angel_dojo/tts_voices/en_US-angel-medium.onnx* root@homeassistant.local:/share/piper/
-
-```
-
-**3. Activate**
-
-1. Restart the **Piper** add-on in Home Assistant.
-2. Go to **Settings > Voice Assistants > Assist**.
-3. Set TTS to **Piper** and Voice to **angel (medium)**.
-
-### **Summary of Commands (Quick Reference)**
-
-```bash
-# 1. Download
-yt-dlp -x --audio-format wav -o "source.wav" "URL"
-
-# 2. Clean & Segment
-ffmpeg -i source.wav -af "silenceremove=stop_periods=-1:stop_duration=1:stop_threshold=-30dB" clean.wav
-ffmpeg -i clean.wav -f segment -segment_time 15 -c copy "split_%03d.wav"
-
-# 3. Transcribe
-python3 transcribe.py
-
-# 4. Train
-cd TextyMcSpeechy
-./run_container.sh
-./create_dojo.sh Angel
-# (Move files to Angel_dojo/training_folder/)
-./download_defaults.sh
-./run_training.sh Angel
-
+chmod +x resume.sh
+./resume.sh
 
 ```
