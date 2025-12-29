@@ -41,27 +41,91 @@ yt-dlp -x --audio-format wav --output "angel_source.wav" "https://www.youtube.co
 
 ### **Phase 2: Audio Cleanup & Segmentation**
 
-We need to remove silence and chop the long file into small 10–15 second chunks for the AI to learn from.
-
-**1. Remove Silence**
-This command removes long pauses so the AI doesn't learn to be silent.
-
-```bash
-ffmpeg -i angel_source.wav -af "silenceremove=stop_periods=-1:stop_duration=1:stop_threshold=-30dB" angel_nosilence.wav
-
-```
 
 **2. Cut the file into segments**
-We will slice the clean audio into 15-second chunks. Piper trains best on clips between 5–15 seconds.
-
+We need to remove silence and chop the long file into small 10–15 second chunks for the AI to learn from.
+`nano splitter.py`
 ```bash
-# Create a directory for the clips
-mkdir -p wav
+import os
+from pydub import AudioSegment
+from pydub.silence import split_on_silence
 
-# Split the file
-ffmpeg -i angel_nosilence.wav -f segment -segment_time 15 -c copy "./wav/split_%03d.wav"
+# --- CONFIGURATION ---
+input_file = "angel_nosilence.wav"
+output_dir = "./wav"
+
+# Silence Settings
+min_silence_len = 400   # (ms) Minimum length of silence to be considered a split point
+silence_thresh = -40    # (dB) Anything quieter than this is considered silence
+keep_silence = 200      # (ms) Amount of silence to leave at the beginning/end of each chunk
+
+# Target Length Settings (in milliseconds)
+target_length = 12 * 1000   # Aim for ~12 seconds
+min_length = 8 * 1000       # Don't save files shorter than 8 seconds (unless it's the last one)
+max_length = 15 * 1000      # Try not to exceed 15 seconds
+# ---------------------
+
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+
+print(f"Loading {input_file}...")
+audio = AudioSegment.from_wav(input_file)
+
+print("Detecting silence and creating base chunks...")
+# Step 1: Split strictly on silence first
+base_chunks = split_on_silence(
+    audio,
+    min_silence_len=min_silence_len,
+    silence_thresh=silence_thresh,
+    keep_silence=keep_silence
+)
+
+print(f"Found {len(base_chunks)} base sentences. Combining to reach target length...")
+
+# Step 2: Combine chunks to fit target duration
+output_chunks = []
+current_chunk = AudioSegment.empty()
+
+for chunk in base_chunks:
+    # If adding this chunk keeps us under the max limit, add it
+    if len(current_chunk) + len(chunk) < max_length:
+        current_chunk += chunk
+    else:
+        # If the current chunk is long enough (valid), save it and start a new one
+        if len(current_chunk) > min_length:
+            output_chunks.append(current_chunk)
+            current_chunk = chunk
+        else:
+            # If current chunk is too short but we CAN'T add the next one (it would be too long),
+            # we are forced to save the short one (or discard it, but saving is safer).
+            # Here we save it to avoid data loss.
+            output_chunks.append(current_chunk)
+            current_chunk = chunk
+
+# Don't forget the last chunk remaining
+if len(current_chunk) > 0:
+    output_chunks.append(current_chunk)
+
+print(f"Consolidated into {len(output_chunks)} training files. Exporting...")
+
+# Step 3: Export
+for i, chunk in enumerate(output_chunks):
+    # Format filename as split_001.wav
+    output_filename = f"split_{i:03d}.wav"
+    output_path = os.path.join(output_dir, output_filename)
+    
+    # Export (Ensure 22050Hz mono for Piper)
+    chunk = chunk.set_frame_rate(22050).set_channels(1)
+    chunk.export(output_path, format="wav")
+    
+    # Optional: Print length to verify
+    duration = len(chunk) / 1000
+    print(f"Exported: {output_filename} ({duration:.1f}s)")
+
+print("Done!")
 
 ```
+`python3 splitter.py`
 
 **3. Format Correction (Critical Step)**
 Piper *requires* specific audio settings (22050Hz, Mono, 16-bit). If you skip this, training will fail.
@@ -344,6 +408,7 @@ echo "🎉 Export Complete! Model saved to $OUTPUT_DIR"
 chmod +x  export_model.sh
 ./export_model.sh
 ```
+
 
 
 
